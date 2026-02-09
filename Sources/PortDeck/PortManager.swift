@@ -84,11 +84,30 @@ final class PortManager: ObservableObject {
         statusMessage = nil
 
         Task {
-            let message = await Task.detached(priority: .userInitiated) {
-                Self.terminateByPort(port: port)
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.terminateByPortDetailed(port: port)
             }.value
 
-            statusMessage = message
+            statusMessage = result.message
+            refresh()
+        }
+    }
+
+    func terminatePorts(_ ports: [Int]) {
+        statusMessage = nil
+
+        let uniquePorts = Array(Set(ports)).sorted()
+        guard !uniquePorts.isEmpty else {
+            statusMessage = "종료할 포트가 없습니다."
+            return
+        }
+
+        Task {
+            let summary = await Task.detached(priority: .userInitiated) {
+                Self.terminatePortsSummary(ports: uniquePorts)
+            }.value
+
+            statusMessage = summary
             refresh()
         }
     }
@@ -104,6 +123,19 @@ final class PortManager: ObservableObject {
         let stdout: String
         let stderr: String
         let status: Int32
+    }
+
+    private struct PortTerminationResult {
+        let port: Int
+        let terminated: Int
+        let total: Int
+
+        var message: String {
+            if total == 0 {
+                return "포트 \(port)에서 종료할 프로세스를 찾지 못했습니다."
+            }
+            return "포트 \(port)에서 \(terminated)/\(total)개 프로세스를 종료했습니다."
+        }
     }
 
     private nonisolated static func fetchPortProcesses() -> [PortProcess] {
@@ -243,6 +275,10 @@ final class PortManager: ObservableObject {
     }
 
     private nonisolated static func terminateByPort(port: Int) -> String {
+        terminateByPortDetailed(port: port).message
+    }
+
+    private nonisolated static func terminateByPortDetailed(port: Int) -> PortTerminationResult {
         let result = runCommand(
             "/usr/sbin/lsof",
             arguments: ["-tiTCP:\(port)", "-sTCP:LISTEN"]
@@ -253,7 +289,7 @@ final class PortManager: ObservableObject {
             .compactMap { Int($0) }
 
         if pidLines.isEmpty {
-            return "포트 \(port)에서 종료할 프로세스를 찾지 못했습니다."
+            return PortTerminationResult(port: port, terminated: 0, total: 0)
         }
 
         let uniquePIDs = Array(Set(pidLines)).sorted()
@@ -266,7 +302,40 @@ final class PortManager: ObservableObject {
             }
         }
 
-        return "포트 \(port)에서 \(terminated)/\(uniquePIDs.count)개 프로세스를 종료했습니다."
+        return PortTerminationResult(port: port, terminated: terminated, total: uniquePIDs.count)
+    }
+
+    private nonisolated static func terminatePortsSummary(ports: [Int]) -> String {
+        var portsWithProcess = 0
+        var terminatedCount = 0
+        var totalProcessCount = 0
+        var missingPorts: [Int] = []
+
+        for port in ports {
+            let result = terminateByPortDetailed(port: port)
+            if result.total == 0 {
+                missingPorts.append(port)
+                continue
+            }
+
+            portsWithProcess += 1
+            terminatedCount += result.terminated
+            totalProcessCount += result.total
+        }
+
+        var summary = "요청 포트 \(ports.count)개 중 \(portsWithProcess)개에서 \(terminatedCount)/\(totalProcessCount)개 프로세스를 종료했습니다."
+
+        if !missingPorts.isEmpty {
+            let previewCount = min(missingPorts.count, 6)
+            let preview = missingPorts.prefix(previewCount).map(String.init).joined(separator: ",")
+            if missingPorts.count > previewCount {
+                summary += " 미발견 포트: \(preview) 외 \(missingPorts.count - previewCount)개."
+            } else {
+                summary += " 미발견 포트: \(preview)."
+            }
+        }
+
+        return summary
     }
 
     private nonisolated static func terminateProcess(pid: Int) -> String {

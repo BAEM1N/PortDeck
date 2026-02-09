@@ -16,11 +16,22 @@ When a dev server is stuck on a port, you can find it quickly and stop it withou
   - owner
 - Stop by PID (tries `SIGTERM`, then `SIGKILL` only if needed)
 - Stop directly by port number (for example `8000`)
+- Stop ports from the search row button (single, multiple, range)
 - Hide system ports (`1-1023`) by default
 - Filter by common port ranges (`1-1023`, `1024-49151`, `49152-65535`)
 - Monitor CPU, memory, and disk usage in the same panel
 - Hover or click CPU/Memory/Disk cards to view Top N heavy users
 - Follow macOS light/dark mode automatically
+
+## What's New in v0.0.3
+
+- Removed the system toggle from the search row
+- Added `Stop Ports` button next to search input
+- Port stop supports:
+  - single port (`8000`)
+  - multi ports (`8000,8080`)
+  - range (`3000:3999`, applies to current LISTEN ports)
+- Updated docs for the new search-row stop workflow
 
 ## What's New in v0.0.2
 
@@ -38,6 +49,9 @@ The search box supports simple mixed queries:
 - Port range: `3000:3999`
 - Multiple conditions (OR): `8000,8080`
 - Mixed query: `3000:3999,uvicorn`
+
+Port stop from search row uses only numeric tokens (`8000`, `3000:3999`, `8000,8080`).
+Text tokens are for filtering only.
 
 ## Run Locally
 

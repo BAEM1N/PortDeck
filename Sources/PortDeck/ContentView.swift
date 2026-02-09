@@ -169,9 +169,7 @@ struct ContentView: View {
     @StateObject private var portManager = PortManager()
     @StateObject private var systemMonitor = SystemMonitor()
     @StateObject private var systemInsights = SystemInsights(topN: 7)
-    @State private var manualPort = ""
     @State private var searchQuery = ""
-    @State private var showSystemPorts = false
     @State private var bandFilter: PortBandFilter = .all
     @State private var pinnedInsightMetric: InsightMetric?
     @State private var hoveredMetrics: Set<InsightMetric> = []
@@ -232,8 +230,6 @@ struct ContentView: View {
                     if let selectedMetric = systemInsights.selectedMetric {
                         insightCard(for: selectedMetric)
                     }
-
-                    quickActionCard
 
                     filterCard
 
@@ -297,48 +293,6 @@ struct ContentView: View {
         }
     }
 
-    private var quickActionCard: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Image(systemName: "number")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(theme.textTertiary)
-
-                TextField("포트 번호 (예: 8000)", text: $manualPort)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(theme.textPrimary)
-                    .onSubmit {
-                        terminateByManualPort()
-                    }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(theme.fieldFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(theme.fieldBorder, lineWidth: 1)
-            )
-
-            Button {
-                terminateByManualPort()
-            } label: {
-                Label("포트 종료", systemImage: "stop.circle.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(theme.danger)
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(theme.cardFill)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(theme.cardBorder, lineWidth: 1)
-                )
-        )
-    }
-
     private var filterCard: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
@@ -371,13 +325,16 @@ struct ContentView: View {
                         .stroke(theme.fieldBorder, lineWidth: 1)
                 )
 
-                Toggle("시스템", isOn: $showSystemPorts)
-                    .toggleStyle(.switch)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(theme.textSecondary)
+                Button {
+                    terminateBySearchPorts()
+                } label: {
+                    Label("포트 종료", systemImage: "stop.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.danger)
             }
 
-            Text("검색 문법: 숫자(단일 포트), `시작:끝`(대역), `,`(여러 조건 OR)")
+            Text("검색/종료 문법: 숫자(단일), `시작:끝`(대역), `,`(여러 포트). 텍스트 토큰은 검색에만 사용됩니다.")
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(theme.textTertiary)
 
@@ -402,7 +359,7 @@ struct ContentView: View {
     private var filteredEntries: [PortProcess] {
         var entries = portManager.entries
 
-        if !showSystemPorts {
+        if bandFilter != .system {
             entries = entries.filter { $0.portBand != .system }
         }
 
@@ -511,14 +468,63 @@ struct ContentView: View {
         )
     }
 
-    private func terminateByManualPort() {
-        let raw = manualPort.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let port = Int(raw), (1...65_535).contains(port) else {
-            portManager.statusMessage = "1~65535 범위의 포트 번호를 입력하세요."
-            return
+    private enum SearchPortResolution {
+        case valid([Int])
+        case noNumericToken
+        case noMatchingPort
+    }
+
+    private func resolvePortsFromSearch() -> SearchPortResolution {
+        let tokens = SearchToken.parse(from: searchQuery)
+        guard !tokens.isEmpty else {
+            return .noNumericToken
         }
 
-        portManager.terminatePort(port)
+        var directPorts: [Int] = []
+        var ranges: [ClosedRange<Int>] = []
+
+        for token in tokens {
+            switch token {
+            case .port(let port):
+                directPorts.append(port)
+            case .range(let range):
+                ranges.append(range)
+            case .text:
+                continue
+            }
+        }
+
+        if directPorts.isEmpty && ranges.isEmpty {
+            return .noNumericToken
+        }
+
+        var resolved = Set(directPorts)
+        if !ranges.isEmpty {
+            let activePorts = Set(portManager.entries.map(\.port))
+            for range in ranges {
+                for port in activePorts where range.contains(port) {
+                    resolved.insert(port)
+                }
+            }
+        }
+
+        let sorted = resolved.sorted()
+        if sorted.isEmpty {
+            return .noMatchingPort
+        }
+
+        return .valid(sorted)
+    }
+
+    private func terminateBySearchPorts() {
+        switch resolvePortsFromSearch() {
+        case .valid(let ports):
+            portManager.terminatePorts(ports)
+        case .noNumericToken:
+            portManager.statusMessage = "종료할 포트를 숫자/범위로 입력하세요. 예: 8000, 3000:3999, 8000,8080"
+        case .noMatchingPort:
+            portManager.statusMessage = "입력 범위에서 현재 LISTEN 중인 포트를 찾지 못했습니다."
+        }
     }
 
     private func showInsightIfNeeded(_ metric: InsightMetric) {
