@@ -208,35 +208,38 @@ struct ContentView: View {
                     .offset(x: 70, y: 84)
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
 
-                SystemMetricsCard(
-                    snapshot: systemMonitor.snapshot,
-                    byteFormatter: byteFormatter,
-                    theme: theme
-                )
+                    SystemMetricsCard(
+                        snapshot: systemMonitor.snapshot,
+                        byteFormatter: byteFormatter,
+                        theme: theme
+                    )
 
-                quickActionCard
+                    quickActionCard
 
-                filterCard
+                    filterCard
 
-                if let statusMessage = portManager.statusMessage {
-                    Text(statusMessage)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(theme.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(theme.statusFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    if let statusMessage = portManager.statusMessage {
+                        Text(statusMessage)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(theme.textSecondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(theme.statusFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+
+                    portListCard
+
+                    Text("예: FastAPI/uvicorn이 8000번 점유 중이면 PID 종료 또는 포트 종료를 실행하세요.")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(theme.textTertiary)
                 }
-
-                portListCard
-
-                Text("예: FastAPI/uvicorn이 8000번 점유 중이면 PID 종료 또는 포트 종료를 실행하세요.")
-                    .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundStyle(theme.textTertiary)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(14)
         }
         .frame(width: 640, height: 760)
         .onAppear {
@@ -446,42 +449,39 @@ struct ContentView: View {
                     .foregroundStyle(theme.textSecondary)
                     .frame(maxWidth: .infinity, minHeight: 290, alignment: .center)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(portSections) { section in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(section.band.stageTitle)
-                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(theme.textSecondary)
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(portSections) { section in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text(section.band.stageTitle)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(theme.textSecondary)
 
-                                    Spacer()
+                                Spacer()
 
-                                    Text("\(section.entries.count)개")
-                                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                                        .foregroundStyle(theme.textTertiary)
-                                }
+                                Text("\(section.entries.count)개")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                                    .foregroundStyle(theme.textTertiary)
+                            }
 
-                                ForEach(section.entries) { entry in
-                                    PortRow(entry: entry, theme: theme) {
-                                        portManager.terminate(pid: entry.pid)
-                                    }
+                            ForEach(section.entries) { entry in
+                                PortRow(entry: entry, theme: theme) {
+                                    portManager.terminate(pid: entry.pid)
                                 }
                             }
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(theme.rowFill)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(theme.rowBorder, lineWidth: 1)
-                                    )
-                            )
                         }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(theme.rowFill)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(theme.rowBorder, lineWidth: 1)
+                                )
+                        )
                     }
-                    .padding(.vertical, 2)
                 }
-                .frame(minHeight: 300)
+                .padding(.vertical, 2)
             }
         }
         .padding(12)
