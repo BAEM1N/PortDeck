@@ -2,79 +2,53 @@
 
 [English README](README.md)
 
-PortDeck은 macOS 메뉴바에서 현재 TCP LISTEN 포트를 확인하고, 해당 포트를 점유한 프로세스를 종료할 수 있는 개발자용 유틸리티입니다.
+PortDeck은 "포트 누가 잡고 있는지 확인하고 바로 내리는" 데 초점을 둔 macOS 메뉴바 앱입니다.
+로컬 개발 중에 서버가 포트를 점유한 채 남아 있을 때, 터미널을 오가며 명령어 치는 과정을 줄여줍니다.
 
-## AI 친화 요약
+## 주요 기능
 
-- 프로젝트 유형: macOS 메뉴바 앱 (SwiftUI)
-- 주요 목적: 로컬 개발 서버 포트 확인/종료 (예: FastAPI `8000`)
-- 핵심 기능: 포트 조회, 프로세스 종료, CPU/RAM/디스크 모니터링
-- 기술 스택: Swift 6, SwiftUI, `lsof`, `ps`, `kill`, `launchctl`
-- 실행 환경: macOS 13+
-
-## 키워드
-
-`macOS` `메뉴바 앱` `포트 모니터` `TCP LISTEN` `프로세스 종료` `SwiftUI` `FastAPI` `uvicorn` `LaunchAgent`
-
-## 기능
-
-- LISTEN 상태 TCP 포트 목록 조회 (`lsof` 기반)
-- 포트별 프로세스 정보 표시:
+- 현재 TCP `LISTEN` 포트 실시간 조회
+- 각 포트의 프로세스 정보 확인:
   - PID
   - 프로세스 이름
-  - 명령어 전체
+  - 전체 명령어
   - 작업 디렉터리(cwd)
   - 소유 사용자
+- PID 기준 종료 (`SIGTERM` 우선, 실패 시에만 `SIGKILL`)
+- 포트 번호로 바로 종료 (예: `8000`)
 - 시스템 포트(`1-1023`) 기본 숨김
-- 포트 대역별 구분/필터:
-  - `1-1023` (시스템)
-  - `1024-49151` (일반/등록)
-  - `49152-65535` (동적)
-- 고급 검색 문법:
-  - 단일 포트: `8000`
-  - 구간 검색: `3000:3999`
-  - 다중 조건(OR): `8000,8080`, `3000:3999,uvicorn`
-- PID 즉시 종료 (`SIGTERM`, 실패 시 `SIGKILL`)
-- 포트 번호 직접 입력 종료
-- 실시간 시스템 지표:
-  - CPU 사용률
-  - 메모리 사용량
-  - 디스크 사용량
-- macOS 다크/라이트 모드 자동 대응
+- 포트 대역별 필터 (`1-1023`, `1024-49151`, `49152-65535`)
+- 같은 패널에서 CPU/메모리/디스크 사용량 확인
+- CPU/메모리/디스크 카드를 마우스 오버/클릭하면 Top N 목록 표시
+- macOS 라이트/다크 모드 자동 대응
 
-## 메뉴바 이름 표시 안내
+## v0.0.2 변경 사항
 
-- 메뉴바 라벨은 텍스트 `PortDeck`으로 설정되어 있습니다.
-- macOS 특성상 메뉴바 공간이 부족하면 텍스트가 축약/숨김될 수 있습니다.
-- 텍스트가 안 보여도 앱 동작은 정상입니다.
+- 시스템 리소스 카드에서 Top N 인사이트 패널 추가
+- CPU/메모리/디스크 카드에 hover + click 인터랙션 지원
+- CPU/메모리는 프로세스 기준 Top N 표시
+- 디스크는 홈 디렉터리 기준 용량 Top N 표시
+- 새로운 상호작용 방식에 맞게 문서 업데이트
 
-## 프로젝트 구조
+## 검색 문법
 
-```text
-Sources/PortDeck/
-  AppBrand.swift
-  ContentView.swift
-  PortManager.swift
-  PortDeckApp.swift
-  SystemMonitor.swift
-scripts/
-  package_app.sh
-  install_launch_agent.sh
-  deploy.sh
-```
+검색창에서 아래 형태를 지원합니다.
 
-## 빠른 시작
+- 단일 포트: `8000`
+- 포트 구간: `3000:3999`
+- 다중 조건(OR): `8000,8080`
+- 혼합 검색: `3000:3999,uvicorn`
 
-### 1) 빌드 및 실행
+## 로컬 실행
 
 ```bash
 swift build
 swift run
 ```
 
-메뉴바에서 `PortDeck`을 열어 사용합니다.
+실행 후 메뉴바에서 `PortDeck`을 열어 사용하면 됩니다.
 
-### 2) `.app` 패키징
+## 앱 번들 생성
 
 ```bash
 ./scripts/package_app.sh
@@ -84,50 +58,50 @@ swift run
 
 - `dist/PortDeck.app`
 
-### 3) 로그인 자동 실행(LaunchAgent)
+## 로그인 자동 실행 설정
 
 ```bash
 ./scripts/install_launch_agent.sh
 ```
 
-동작:
+설치 항목:
 
-- `~/Applications/PortDeck.app`으로 앱 복사
-- `~/Library/LaunchAgents/com.baem1n.portdeck.plist` 등록
-- 현재 세션 즉시 실행
-- 다음 로그인부터 자동 실행
+- 앱: `~/Applications/PortDeck.app`
+- LaunchAgent: `~/Library/LaunchAgents/com.baem1n.portdeck.plist`
 
-### 4) 한 번에 배포
+## 한 번에 배포
 
 ```bash
 ./scripts/deploy.sh
 ```
 
-## 포트 조회 방식
+## 메뉴바 이름 표시 관련
 
-PortDeck은 아래 명령으로 LISTEN 포트를 수집합니다.
-
-- `lsof -nP -iTCP -sTCP:LISTEN -FpcLun`
-
-추가 정보 보강:
-
-- 명령어: `ps -p <pid> -o command=`
-- 작업 디렉터리: `lsof -a -p <pid> -d cwd -Fn`
-
-## 안전/권한 안내
-
-- 주로 개발자가 실행한 로컬 프로세스 제어를 목적으로 합니다.
-- 시스템 프로세스는 권한 문제로 종료 실패할 수 있습니다.
-- `SIGKILL`은 `SIGTERM` 실패 시에만 사용됩니다.
+메뉴바 라벨은 텍스트 `PortDeck`으로 설정되어 있습니다.
+다만 macOS는 메뉴바 공간이 부족하면 텍스트를 접거나 숨길 수 있습니다. 이 경우도 동작은 정상입니다.
 
 ## 트러블슈팅
 
-- 포트가 안 보이면 새로고침 후 프로세스가 `LISTEN` 상태인지 확인하세요.
-- 종료가 실패하면 프로세스 소유자/권한을 확인하세요.
+- 포트가 안 보일 때:
+  - 새로고침 후 대상 프로세스가 `LISTEN` 상태인지 확인
+- 종료 실패 시:
+  - 프로세스 소유자/권한 확인
 - LaunchAgent 로그:
   - `/tmp/com.baem1n.portdeck.out.log`
   - `/tmp/com.baem1n.portdeck.err.log`
 
-## 라이선스
+## 프로젝트 구조
 
-현재 라이선스 파일은 없습니다.
+```text
+Sources/PortDeck/
+  AppBrand.swift
+  ContentView.swift
+  SystemInsights.swift
+  PortManager.swift
+  PortDeckApp.swift
+  SystemMonitor.swift
+scripts/
+  package_app.sh
+  install_launch_agent.sh
+  deploy.sh
+```

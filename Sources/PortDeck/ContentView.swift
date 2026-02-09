@@ -168,10 +168,14 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var portManager = PortManager()
     @StateObject private var systemMonitor = SystemMonitor()
+    @StateObject private var systemInsights = SystemInsights(topN: 7)
     @State private var manualPort = ""
     @State private var searchQuery = ""
     @State private var showSystemPorts = false
     @State private var bandFilter: PortBandFilter = .all
+    @State private var pinnedInsightMetric: InsightMetric?
+    @State private var hoveredMetrics: Set<InsightMetric> = []
+    @State private var hoverCloseTask: Task<Void, Never>?
 
     private let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
@@ -215,8 +219,19 @@ struct ContentView: View {
                     SystemMetricsCard(
                         snapshot: systemMonitor.snapshot,
                         byteFormatter: byteFormatter,
-                        theme: theme
+                        theme: theme,
+                        topN: systemInsights.topN,
+                        onTapMetric: { metric in
+                            pinInsight(metric)
+                        },
+                        onHoverMetric: { metric, isHovering in
+                            handleMetricHover(metric: metric, isHovering: isHovering)
+                        }
                     )
+
+                    if let selectedMetric = systemInsights.selectedMetric {
+                        insightCard(for: selectedMetric)
+                    }
 
                     quickActionCard
 
@@ -247,6 +262,7 @@ struct ContentView: View {
             systemMonitor.start()
         }
         .onDisappear {
+            hoverCloseTask?.cancel()
             systemMonitor.stop()
         }
     }
@@ -504,15 +520,187 @@ struct ContentView: View {
 
         portManager.terminatePort(port)
     }
+
+    private func showInsightIfNeeded(_ metric: InsightMetric) {
+        if systemInsights.selectedMetric != metric || systemInsights.rows.isEmpty {
+            systemInsights.show(metric: metric)
+        }
+    }
+
+    private func pinInsight(_ metric: InsightMetric) {
+        pinnedInsightMetric = metric
+        showInsightIfNeeded(metric)
+    }
+
+    private func closeInsightPanel() {
+        pinnedInsightMetric = nil
+        if let firstHovered = hoveredMetrics.first {
+            showInsightIfNeeded(firstHovered)
+        } else {
+            systemInsights.close()
+        }
+    }
+
+    private func handleMetricHover(metric: InsightMetric, isHovering: Bool) {
+        hoverCloseTask?.cancel()
+
+        if isHovering {
+            hoveredMetrics.insert(metric)
+            if pinnedInsightMetric == nil {
+                showInsightIfNeeded(metric)
+            }
+            return
+        }
+
+        hoveredMetrics.remove(metric)
+        guard pinnedInsightMetric == nil else {
+            return
+        }
+
+        if let firstHovered = hoveredMetrics.first {
+            showInsightIfNeeded(firstHovered)
+            return
+        }
+
+        hoverCloseTask = Task {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                if pinnedInsightMetric == nil && hoveredMetrics.isEmpty {
+                    systemInsights.close()
+                }
+            }
+        }
+    }
+
+    private func insightCard(for metric: InsightMetric) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(metric.title) TOP \(systemInsights.topN)")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.textPrimary)
+
+                    Text(metric.subtitle)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(theme.textSecondary)
+                }
+
+                Spacer()
+
+                Button {
+                    systemInsights.show(metric: metric)
+                } label: {
+                    Label("다시", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    closeInsightPanel()
+                } label: {
+                    Label("닫기", systemImage: "xmark")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if systemInsights.isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Top 목록을 계산 중입니다...")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(theme.textSecondary)
+                }
+                .padding(.vertical, 8)
+            } else if let error = systemInsights.errorMessage {
+                Text(error)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.danger)
+            } else if systemInsights.rows.isEmpty {
+                Text("표시할 데이터가 없습니다.")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.textSecondary)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(Array(systemInsights.rows.enumerated()), id: \.element.id) { index, row in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("#\(index + 1)")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(theme.textTertiary)
+                                .frame(width: 24, alignment: .leading)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(row.title)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(theme.textPrimary)
+                                    .lineLimit(1)
+
+                                Text(row.detail)
+                                    .font(.system(size: 10, weight: .regular, design: .rounded))
+                                    .foregroundStyle(theme.textTertiary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Text(row.valueText)
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(theme.textSecondary)
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(theme.rowFill)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(theme.rowBorder, lineWidth: 1)
+                                )
+                        )
+                    }
+                }
+            }
+
+            if metric == .disk {
+                Text("Disk Top은 홈 디렉터리 기준 항목 용량입니다.")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.textTertiary)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(theme.cardFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(theme.cardBorder, lineWidth: 1)
+                )
+        )
+    }
 }
 
 private struct SystemMetricsCard: View {
     let snapshot: SystemSnapshot
     let byteFormatter: ByteCountFormatter
     let theme: AdaptiveTheme
+    let topN: Int
+    let onTapMetric: (InsightMetric) -> Void
+    let onHoverMetric: (InsightMetric, Bool) -> Void
 
     var body: some View {
         VStack(spacing: 10) {
+            HStack {
+                Text("시스템 리소스")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(theme.textSecondary)
+
+                Spacer()
+
+                Text("마우스 오버/클릭 시 TOP \(topN)")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(theme.textTertiary)
+            }
+
             HStack(spacing: 10) {
                 MetricTile(
                     title: "CPU",
@@ -521,7 +709,13 @@ private struct SystemMetricsCard: View {
                     icon: "cpu.fill",
                     progress: min(snapshot.cpuPercent / 100, 1),
                     tone: theme.cpuTone,
-                    theme: theme
+                    theme: theme,
+                    onTap: {
+                        onTapMetric(.cpu)
+                    },
+                    onHoverChanged: { hovering in
+                        onHoverMetric(.cpu, hovering)
+                    }
                 )
 
                 MetricTile(
@@ -531,7 +725,13 @@ private struct SystemMetricsCard: View {
                     icon: "memorychip.fill",
                     progress: min(snapshot.memoryPercent / 100, 1),
                     tone: theme.memoryTone,
-                    theme: theme
+                    theme: theme,
+                    onTap: {
+                        onTapMetric(.memory)
+                    },
+                    onHoverChanged: { hovering in
+                        onHoverMetric(.memory, hovering)
+                    }
                 )
             }
 
@@ -542,7 +742,13 @@ private struct SystemMetricsCard: View {
                 icon: "internaldrive.fill",
                 progress: min(snapshot.diskPercent / 100, 1),
                 tone: theme.diskTone,
-                theme: theme
+                theme: theme,
+                onTap: {
+                    onTapMetric(.disk)
+                },
+                onHoverChanged: { hovering in
+                    onHoverMetric(.disk, hovering)
+                }
             )
         }
         .padding(12)
@@ -565,8 +771,30 @@ private struct MetricTile: View {
     let progress: Double
     let tone: Color
     let theme: AdaptiveTheme
+    let onTap: (() -> Void)?
+    let onHoverChanged: ((Bool) -> Void)?
 
     var body: some View {
+        Group {
+            if let onTap {
+                Button(action: onTap) {
+                    content
+                }
+                .buttonStyle(.plain)
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .onHover { hovering in
+                    onHoverChanged?(hovering)
+                }
+            } else {
+                content
+                    .onHover { hovering in
+                        onHoverChanged?(hovering)
+                    }
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
